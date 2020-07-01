@@ -100,7 +100,8 @@ namespace EventSourceProxy
 			FieldBuilder invocationContextsField,
 			ParameterMapping parameterMapping,
 			TraceSerializationProvider serializationProvider,
-			FieldBuilder serializationProviderField)
+			FieldBuilder serializationProviderField, 
+			List<Tuple<FieldInfo, object>> valuesToSet)
 		{
 			var sourceCount = parameterMapping.Sources.Count();
 			if (sourceCount == 0)
@@ -121,7 +122,8 @@ namespace EventSourceProxy
 					parameterMapping.CleanTargetType,
 					parameter.Converter,
 					serializationProvider,
-					serializationProviderField);
+					serializationProviderField, 
+					valuesToSet);
 				return;
 			}
 
@@ -155,7 +157,8 @@ namespace EventSourceProxy
 						parameterMapping.CleanTargetType,
 						parameter.Converter,
 						serializationProvider,
-						serializationProviderField);
+						serializationProviderField,
+						valuesToSet);
 
 					var method = typeof(Dictionary<string, string>).GetMethod("Add");
 					il.Emit(OpCodes.Call, method);
@@ -202,23 +205,36 @@ namespace EventSourceProxy
 			Type targetType,
 			LambdaExpression converter,
 			TraceSerializationProvider serializationProvider,
-			FieldBuilder serializationProviderField)
+			FieldBuilder serializationProviderField,
+			List<Tuple<FieldInfo, object>> valuesToSet)
 		{
 			ILGenerator mIL = methodBuilder.GetILGenerator();
-
-			// if the source is a parameter, then load the parameter onto the stack
-			if (i >= 0)
-				mIL.Emit(OpCodes.Ldarg, i + 1);
 
 			// if a converter is passed in, then define a static method and use it to convert
 			if (converter != null)
 			{
-				MethodBuilder mb = typeBuilder.DefineMethod(Guid.NewGuid().ToString(), MethodAttributes.Static | MethodAttributes.Public, converter.ReturnType, converter.Parameters.Select(p => p.Type).ToArray());
-				converter.CompileToMethod(mb);
-				mIL.Emit(OpCodes.Call, mb);
+				var converterDelegate = converter.Compile();
+				var funcType = converterDelegate.GetType(); // typeof(Func<,>).MakeGenericType(sourceType, converter.ReturnType);
+				var fieldForConverter = typeBuilder.DefineField(Guid.NewGuid().ToString(),
+					funcType, FieldAttributes.Static);
+				valuesToSet.Add(new Tuple<FieldInfo, object>(fieldForConverter, converterDelegate));
+				
+				mIL.Emit(OpCodes.Ldsfld, fieldForConverter);
+				
+				// if the source is a parameter, then load the parameter onto the stack
+				if (i >= 0)
+					mIL.Emit(OpCodes.Ldarg, i + 1);
+				
+				mIL.Emit(OpCodes.Callvirt, funcType.GetMethod("Invoke"));
 
 				// the object on the stack is now the return type. we may need to convert it further
 				sourceType = converter.ReturnType;
+			}
+			else
+			{
+				// if the source is a parameter, then load the parameter onto the stack
+				if (i >= 0)
+					mIL.Emit(OpCodes.Ldarg, i + 1);
 			}
 
 			// if the source type is a reference to the target type, we have to dereference it

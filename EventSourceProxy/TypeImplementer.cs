@@ -213,7 +213,7 @@ namespace EventSourceProxy
 			// create a new assembly
 			AssemblyName an = Assembly.GetExecutingAssembly().GetName();
 			an.Name = ProxyHelper.AssemblyName;
-			AssemblyBuilder ab = AppDomain.CurrentDomain.DefineDynamicAssembly(an, AssemblyBuilderAccess.Run);
+			AssemblyBuilder ab = AssemblyBuilder.DefineDynamicAssembly(an, AssemblyBuilderAccess.Run);
 			ModuleBuilder mb = ab.DefineDynamicModule(an.Name);
 
 			// create a type based on EventSource and call the default constructor
@@ -259,6 +259,8 @@ namespace EventSourceProxy
 			bool hasKeywords = (implementationAttribute.Keywords != null) || (FindNestedType(_interfaceType, "Keywords") != null);
 			ulong nextAutoKeyword = hasKeywords ? (ulong)0 : 1;
 
+			List<Tuple<FieldInfo, object>> valuesToSet = new List<Tuple<FieldInfo, object>>();
+			
 			// for each method on the interface, try to implement it with a call to eventsource
 			Dictionary<string, ulong> autoKeywords = new Dictionary<string, ulong>();
 			foreach (MethodInfo interfaceMethod in interfaceMethods)
@@ -283,13 +285,13 @@ namespace EventSourceProxy
 				ulong keywordForMethod = hasAutoKeywords ? autoKeywords[keywordName] : 0;
 
 				// emit the method
-				var beginMethod = EmitMethodImpl(invocationContext, ref eventId, (EventKeywords)keywordForMethod);
+				var beginMethod = EmitMethodImpl(invocationContext, ref eventId, (EventKeywords)keywordForMethod, valuesToSet);
 
 				// if we are generating an interface, add the complement methods
 				if (implementationAttribute.ImplementComplementMethods && !_interfaceType.IsSubclassOf(typeof(EventSource)))
 				{
-					var faultedMethod = EmitMethodFaultedImpl(invocationContext, beginMethod, ref eventId, (EventKeywords)keywordForMethod);
-					EmitMethodCompletedImpl(invocationContext, beginMethod, ref eventId, (EventKeywords)keywordForMethod, faultedMethod);
+					var faultedMethod = EmitMethodFaultedImpl(invocationContext, beginMethod, ref eventId, (EventKeywords)keywordForMethod, valuesToSet);
+					EmitMethodCompletedImpl(invocationContext, beginMethod, ref eventId, (EventKeywords)keywordForMethod, faultedMethod, valuesToSet);
 				}
 			}
 
@@ -308,6 +310,12 @@ namespace EventSourceProxy
 			t.GetField(_invocationContextsField.Name, BindingFlags.Static | BindingFlags.NonPublic).SetValue(null, _invocationContexts.ToArray());
 			t.GetField(_serializationProviderField.Name, BindingFlags.Static | BindingFlags.NonPublic).SetValue(null, _serializationProvider);
 			t.GetField(_contextProviderField.Name, BindingFlags.Static | BindingFlags.NonPublic).SetValue(null, _contextProvider);
+
+			// fix up the converter functions generated from lambdas
+			foreach (var tuple in valuesToSet)
+			{
+				t.GetField(tuple.Item1.Name, BindingFlags.Static | BindingFlags.NonPublic).SetValue(null, tuple.Item2);
+			}
 
 			// instantiate the singleton
 			EventSource = (EventSource)t.GetConstructor(Type.EmptyTypes).Invoke(null);
@@ -352,7 +360,7 @@ namespace EventSourceProxy
 		/// <param name="eventId">The next eventID to use.</param>
 		/// <param name="autoKeyword">The auto-keyword to use if enabled.</param>
 		/// <returns>The method that is implemented.</returns>
-		private MethodBuilder EmitMethodImpl(InvocationContext invocationContext, ref int eventId, EventKeywords autoKeyword)
+		private MethodBuilder EmitMethodImpl(InvocationContext invocationContext, ref int eventId, EventKeywords autoKeyword, List<Tuple<FieldInfo, object>> valuesToSet)
 		{
 			// get the method we are implementing and the parameter mapping
 			var interfaceMethod = invocationContext.MethodInfo;
@@ -416,7 +424,7 @@ namespace EventSourceProxy
 				ProxyHelper.CopyMethodSignature(interfaceMethod, im);
 				ProxyHelper.EmitDefaultValue(im.GetILGenerator(), im.ReturnType);
 				if (EmitIsEnabled(im, eventAttribute))
-					EmitDirectProxy(invocationContext, im, m, parameterMapping);
+					EmitDirectProxy(invocationContext, im, m, parameterMapping, valuesToSet);
 
 				// if this is an interface, then tell the system to map our method to the interface implementation
 				if (interfaceMethod.IsAbstract)
@@ -426,7 +434,7 @@ namespace EventSourceProxy
 			{
 				// we are implementing a non-abstract method in event source, then
 				// all we can do is call the base implementation
-				EmitDirectProxy(invocationContext, m, interfaceMethod, parameterMapping);
+				EmitDirectProxy(invocationContext, m, interfaceMethod, parameterMapping, valuesToSet);
 			}
 
 			return m;
@@ -442,9 +450,9 @@ namespace EventSourceProxy
 		/// <param name="autoKeyword">The auto-keyword to use if enabled.</param>
 		/// <param name="faultedMethod">A faulted method to call or null if no other faulted method is available.</param>
 		/// <returns>The MethodBuilder for the method.</returns>
-		private MethodBuilder EmitMethodCompletedImpl(InvocationContext invocationContext, MethodInfo beginMethod, ref int eventId, EventKeywords autoKeyword, MethodBuilder faultedMethod)
+		private MethodBuilder EmitMethodCompletedImpl(InvocationContext invocationContext, MethodInfo beginMethod, ref int eventId, EventKeywords autoKeyword, MethodBuilder faultedMethod, List<Tuple<FieldInfo, object>> valuesToSet)
 		{
-			return EmitMethodComplementImpl(invocationContext.SpecifyType(InvocationContextTypes.MethodCompletion), CompletedSuffix, invocationContext.MethodInfo.ReturnType, ReturnValue, beginMethod, ref eventId, autoKeyword, faultedMethod);
+			return EmitMethodComplementImpl(invocationContext.SpecifyType(InvocationContextTypes.MethodCompletion), CompletedSuffix, invocationContext.MethodInfo.ReturnType, ReturnValue, beginMethod, ref eventId, autoKeyword, faultedMethod, valuesToSet);
 		}
 
 		/// <summary>
@@ -456,9 +464,9 @@ namespace EventSourceProxy
 		/// <param name="eventId">The next available event ID.</param>
 		/// <param name="autoKeyword">The auto-keyword to use if enabled.</param>
 		/// <returns>The MethodBuilder for the method.</returns>
-		private MethodBuilder EmitMethodFaultedImpl(InvocationContext invocationContext, MethodInfo beginMethod, ref int eventId, EventKeywords autoKeyword)
+		private MethodBuilder EmitMethodFaultedImpl(InvocationContext invocationContext, MethodInfo beginMethod, ref int eventId, EventKeywords autoKeyword, List<Tuple<FieldInfo, object>> valuesToSet)
 		{
-			return EmitMethodComplementImpl(invocationContext.SpecifyType(InvocationContextTypes.MethodFaulted), FaultedSuffix, typeof(Exception), "exception", beginMethod, ref eventId, autoKeyword, null);
+			return EmitMethodComplementImpl(invocationContext.SpecifyType(InvocationContextTypes.MethodFaulted), FaultedSuffix, typeof(Exception), "exception", beginMethod, ref eventId, autoKeyword, null, valuesToSet);
 		}
 
 		/// <summary>
@@ -474,7 +482,7 @@ namespace EventSourceProxy
 		/// <param name="autoKeyword">The auto-keyword to use if enabled.</param>
 		/// <param name="faultedMethod">A faulted method to call or null if no other faulted method is available.</param>
 		/// <returns>The MethodBuilder for the method.</returns>
-		private MethodBuilder EmitMethodComplementImpl(InvocationContext invocationContext, string suffix, Type parameterType, string parameterName, MethodInfo beginMethod, ref int eventId, EventKeywords autoKeyword, MethodBuilder faultedMethod)
+		private MethodBuilder EmitMethodComplementImpl(InvocationContext invocationContext, string suffix, Type parameterType, string parameterName, MethodInfo beginMethod, ref int eventId, EventKeywords autoKeyword, MethodBuilder faultedMethod, List<Tuple<FieldInfo, object>> valuesToSet)
 		{
 			var interfaceMethod = invocationContext.MethodInfo;
 
@@ -540,7 +548,7 @@ namespace EventSourceProxy
 				if (EmitIsEnabled(im, eventAttribute))
 				{
 					EmitTaskCompletion(im, parameterType, faultedMethod);
-					EmitDirectProxy(invocationContext, im, m, parameterMappings);
+					EmitDirectProxy(invocationContext, im, m, parameterMappings, valuesToSet);
 				}
 
 				return im;
@@ -763,7 +771,7 @@ namespace EventSourceProxy
 			}
 
 			// prepare for write event by setting the ETW activity ID
-			mIL.Emit(OpCodes.Call, typeof(EventActivityScope).GetMethod("PrepareForWriteEvent"));
+			mIL.Emit(OpCodes.Call, typeof(EventActivityScope).GetMethod(nameof(EventActivityScope.PrepareForWriteEvent)));
 
 			// call writeevent
 			mIL.Emit(OpCodes.Call, parameterMapping.Count == 0 ? _writeEventNoParams : _writeEvent);
@@ -777,7 +785,7 @@ namespace EventSourceProxy
 		/// <param name="methodBuilder">The method to implement.</param>
 		/// <param name="baseMethod">The base method.</param>
 		/// <param name="parameterMapping">The mapping of the parameters.</param>
-		private void EmitDirectProxy(InvocationContext invocationContext, MethodBuilder methodBuilder, MethodInfo baseMethod, List<ParameterMapping> parameterMapping)
+		private void EmitDirectProxy(InvocationContext invocationContext, MethodBuilder methodBuilder, MethodInfo baseMethod, List<ParameterMapping> parameterMapping, List<Tuple<FieldInfo, object>> valuesToSet)
 		{
 			/*
 			 * This method assumes that a default return value has been pushed on the stack.
@@ -806,7 +814,8 @@ namespace EventSourceProxy
 						_invocationContextsField,
 						parameter,
 						_serializationProvider,
-						_serializationProviderField);
+						_serializationProviderField,
+						valuesToSet);
 				}
 				else
 				{

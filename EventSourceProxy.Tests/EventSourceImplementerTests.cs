@@ -759,7 +759,7 @@ namespace EventSourceProxy.Tests
             }
         }
 
-        [Test, Ignore]
+        [Test, Ignore("was ignored before")]
         public void EventSourceThrows()
         {
             var subject = EventSourceImplementer.GetEventSourceAs<IThrowsLog>();
@@ -783,11 +783,12 @@ namespace EventSourceProxy.Tests
 			void Sample(string a, string b);
 		}
 
-		[Test, ExpectedException(typeof(InvalidOperationException))]
+		[Test]
 		public void InvalidMessageThrows()
 		{
 			// this is issue #39 - parameters don't match message format
-			var i = EventSourceImplementer.GetEventSourceAs<IHaveInvalidMessage>();
+			Assert.That(() => EventSourceImplementer.GetEventSourceAs<IHaveInvalidMessage>(),
+				Throws.TypeOf<InvalidOperationException>());
 		}
 
 		public interface IHaveMessageFormatting

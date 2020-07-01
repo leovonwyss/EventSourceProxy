@@ -135,7 +135,7 @@ namespace EventSourceProxy
 			// create a new assembly
 			AssemblyName an = Assembly.GetExecutingAssembly().GetName();
 			an.Name = ProxyHelper.AssemblyName;
-			AssemblyBuilder ab = AppDomain.CurrentDomain.DefineDynamicAssembly(an, AssemblyBuilderAccess.Run);
+			AssemblyBuilder ab = AssemblyBuilder.DefineDynamicAssembly(an, AssemblyBuilderAccess.Run);
 			ModuleBuilder mb = ab.DefineDynamicModule(an.Name);
 
 			// create a type that implements the given interface
@@ -144,6 +144,8 @@ namespace EventSourceProxy
 			else
 				_typeBuilder = mb.DefineType(_executeType.FullName + "_LoggingProxy", TypeAttributes.Class | TypeAttributes.Public, _executeType);
 
+			List<Tuple<FieldInfo, object>> valuesToSet = new List<Tuple<FieldInfo, object>>();
+			
 			// emit a constructor and a create method that invokes the constructor so we can return a fast delegate
 			var ctor = EmitFieldsAndConstructor();
 			var createMethod = EmitCreateImpl(ctor);
@@ -151,7 +153,9 @@ namespace EventSourceProxy
 			// for each method on the interface, try to implement it with a call to eventsource
 			var interfaceMethods = ProxyHelper.DiscoverMethods(_executeType);
 			foreach (MethodInfo interfaceMethod in interfaceMethods.Where(m => !m.IsFinal))
-				EmitMethodImpl(interfaceMethod);
+			{
+				EmitMethodImpl(interfaceMethod, valuesToSet);
+			}
 
 			// create the class
 			Type t = _typeBuilder.CreateType();
@@ -161,6 +165,12 @@ namespace EventSourceProxy
 			t.GetField(_logField.Name, BindingFlags.Static | BindingFlags.NonPublic).SetValue(null, log);
 			t.GetField(_serializerField.Name, BindingFlags.Static | BindingFlags.NonPublic).SetValue(null, _serializationProvider);
 			t.GetField(_invocationContextsField.Name, BindingFlags.Static | BindingFlags.NonPublic).SetValue(null, _invocationContexts.ToArray());
+
+			// fix up the converter functions generated from lambdas
+			foreach (var tuple in valuesToSet)
+			{
+				tuple.Item1.SetValue(null, tuple.Item2);
+			}
 
 			// fill in the event source for all of the invocation contexts
 			foreach (var context in _invocationContexts)
@@ -227,7 +237,7 @@ namespace EventSourceProxy
 		/// Emits the implementation of a given interface method.
 		/// </summary>
 		/// <param name="executeMethod">The execute method to implement.</param>
-		private void EmitMethodImpl(MethodInfo executeMethod)
+		private void EmitMethodImpl(MethodInfo executeMethod, List<Tuple<FieldInfo, object>> valuesToSet)
 		{
 			/*
 			 * public TReturn Method (params)
@@ -284,13 +294,13 @@ namespace EventSourceProxy
 			if (logMethod != null)
 			{
 				// call the log method and throw away the result if there is one
-				EmitBaseMethodCall(m, invocationContext, _logField, executeMethod, logMethod);
+				EmitBaseMethodCall(m, invocationContext, _logField, executeMethod, logMethod, valuesToSet);
 				if (logMethod.ReturnType != typeof(void))
 					mIL.Emit(OpCodes.Pop);
 			}
 
 			// call execute
-			EmitBaseMethodCall(m, invocationContext, _executeField, executeMethod, executeMethod);
+			EmitBaseMethodCall(m, invocationContext, _executeField, executeMethod, executeMethod, valuesToSet);
 			if (executeMethod.ReturnType != typeof(void))
 				mIL.Emit(OpCodes.Stloc, returnValue);
 
@@ -360,7 +370,7 @@ namespace EventSourceProxy
 		/// <param name="field">The field containing the interface to call.</param>
 		/// <param name="originalMethod">The the original method signature.</param>
 		/// <param name="baseMethod">The method to call.</param>
-		private void EmitBaseMethodCall(MethodBuilder m, InvocationContext invocationContext, FieldInfo field, MethodInfo originalMethod, MethodInfo baseMethod)
+		private void EmitBaseMethodCall(MethodBuilder m, InvocationContext invocationContext, FieldInfo field, MethodInfo originalMethod, MethodInfo baseMethod, List<Tuple<FieldInfo, object>> valuesToSet)
 		{
 			// if this is a generic method, we have to instantiate our type of method
 			if (baseMethod.IsGenericMethodDefinition)
@@ -389,7 +399,8 @@ namespace EventSourceProxy
 					targetParameters[i].ParameterType,
 					null,
 					_serializationProvider,
-					_serializerField);
+					_serializerField,
+					valuesToSet);
 			}
 
 			// call the method

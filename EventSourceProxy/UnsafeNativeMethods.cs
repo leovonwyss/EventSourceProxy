@@ -52,12 +52,14 @@ namespace EventSourceProxy
 		/// <param name="activityId">The ActivityId to get or set.</param>
 		private static void CallEventActivityIdControl(int controlCode, ref Guid activityId)
 		{
-			uint result = UnsafeNativeMethods.EventActivityIdControl(controlCode, ref activityId);
+			// TODO now a no-op. Check for replacement.
+/*			uint result = UnsafeNativeMethods.EventActivityIdControl(controlCode, ref activityId);
 			if (result != Success)
 				throw new InvalidOperationException(String.Format(CultureInfo.InvariantCulture, "EventActivityIdControl {0} failed with result {1}", controlCode, result));
+				*/
 		}
 
-		[SecurityCritical, DllImport("advapi32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
-		private static extern uint EventActivityIdControl(int ControlCode, ref Guid activityId);
+/*		[SecurityCritical, DllImport("advapi32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+		private static extern uint EventActivityIdControl(int ControlCode, ref Guid activityId);*/
 	}
 }

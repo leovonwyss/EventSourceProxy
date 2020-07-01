@@ -517,7 +517,7 @@ namespace EventSourceProxy.Tests
 			}
 		}
 
-		[Test, ExpectedException(typeof(ArgumentException))]
+		[Test]
 		public void BadExpressionGeneratesMeaningfulException()
 		{
 			EnableLogging<ILogEmailChangesWithBadExpressionTPP>();
@@ -525,7 +525,8 @@ namespace EventSourceProxy.Tests
 			// do some logging
 			var log = EventSourceImplementer.GetEventSourceAs<ILogEmailChangesWithBadExpressionTPP>();
 			var change = new EmailChange() { From = "me", To = "you", When = new DateTime(2010, 1, 1) };
-			log.LogChange(change);
+
+			Assert.That(() => log.LogChange(change), Throws.TypeOf<ArgumentException>());
 		}
 		#endregion
 
