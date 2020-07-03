@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Tracing;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -436,7 +437,7 @@ namespace EventSourceProxy.Tests
 			Assert.AreEqual(3, events[0].Payload.Count);
 			Assert.Contains(change.From, events[0].Payload);
 			Assert.Contains(change.To, events[0].Payload);
-			Assert.Contains(change.When.ToString(), events[0].Payload);
+			Assert.Contains(change.When.ToString("s", CultureInfo.InvariantCulture), events[0].Payload);
 		}
 
 		[Test]
@@ -455,7 +456,7 @@ namespace EventSourceProxy.Tests
 			Assert.AreEqual(4, events[0].Payload.Count);
 			Assert.AreEqual(change.From, events[0].Payload[0].ToString());
 			Assert.AreEqual(change.To, events[0].Payload[1].ToString());
-			Assert.AreEqual(change.When.ToString(), events[0].Payload[2].ToString());
+			Assert.AreEqual(change.When.ToString("s", CultureInfo.InvariantCulture), events[0].Payload[2].ToString());
 			Assert.AreEqual(change.To, events[0].Payload[3].ToString());
 		}
 
@@ -520,13 +521,7 @@ namespace EventSourceProxy.Tests
 		[Test]
 		public void BadExpressionGeneratesMeaningfulException()
 		{
-			EnableLogging<ILogEmailChangesWithBadExpressionTPP>();
-
-			// do some logging
-			var log = EventSourceImplementer.GetEventSourceAs<ILogEmailChangesWithBadExpressionTPP>();
-			var change = new EmailChange() { From = "me", To = "you", When = new DateTime(2010, 1, 1) };
-
-			Assert.That(() => log.LogChange(change), Throws.TypeOf<ArgumentException>());
+			Assert.That(() => EnableLogging<ILogEmailChangesWithBadExpressionTPP>(), Throws.TypeOf<ArgumentException>());
 		}
 		#endregion
 

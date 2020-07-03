@@ -258,11 +258,23 @@ namespace EventSourceProxy
 			var underlyingType = Nullable.GetUnderlyingType(sourceType) ?? sourceType;
 			if (!sourceType.IsGenericParameter && (underlyingType.IsEnum || (underlyingType.IsValueType && underlyingType.Assembly == typeof(string).Assembly)))
 			{
+				if (underlyingType == typeof(DateTime))
+				{
+					// serialize DateTime in ISO format for culture-independence
+					LocalBuilder lb1 = mIL.DeclareLocal(sourceType);
+					mIL.Emit(OpCodes.Stloc, lb1.LocalIndex);
+					mIL.Emit(OpCodes.Ldloca, lb1.LocalIndex);
+					mIL.Emit(OpCodes.Ldstr, "s");
+					mIL.Emit(OpCodes.Call, typeof(CultureInfo).GetProperty(nameof(CultureInfo.InvariantCulture)).GetMethod);
+					mIL.Emit(OpCodes.Call, typeof(DateTime).GetMethod(nameof(object.ToString), new[] { typeof(string), typeof(IFormatProvider)}));
+					return;
+				}
+
 				// convert the argument to a string with ToString
 				LocalBuilder lb = mIL.DeclareLocal(sourceType);
 				mIL.Emit(OpCodes.Stloc, lb.LocalIndex);
 				mIL.Emit(OpCodes.Ldloca, lb.LocalIndex);
-				mIL.Emit(OpCodes.Call, sourceType.GetMethod("ToString", Type.EmptyTypes));
+				mIL.Emit(OpCodes.Call, sourceType.GetMethod(nameof(object.ToString), Type.EmptyTypes));
 				return;
 			}
 

@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 
 namespace EventSourceProxy.Tests
 {
@@ -621,8 +622,13 @@ namespace EventSourceProxy.Tests
 		{
 			var manifest = EventSourceManifest.GenerateManifest(typeof(InterfaceThatFolds));
 
-			// make sure there is only one keyword
-			Assert.That(manifest.Contains("<keywords>\r\n  <keyword name=\"Foo\"  message=\"$(string.keyword_Foo)\" mask=\"0x1\"/>\r\n </keywords>"));
+			XDocument manifestXml = XDocument.Parse(manifest);
+			XNamespace instrumentationNamespace = "http://schemas.microsoft.com/win/2004/08/events";
+
+			// make sure there is only one keyword (besides the auto-generated SessionX keywords)
+			Assert.That(
+				manifestXml.Root.Descendants(instrumentationNamespace + "keyword").Count(xe => !xe.Attribute("name").Value.StartsWith("Session")),
+				Is.EqualTo(1));
 		}
 		#endregion
 
@@ -660,8 +666,7 @@ namespace EventSourceProxy.Tests
         public void EventSourceThrowsNotConfigured()
         {
             var subject = EventSourceImplementer.GetEventSourceAs<IFoo>();
-            var fieldInfo = typeof(EventSource).GetField( "m_throwOnEventWriteErrors", BindingFlags.Instance | BindingFlags.NonPublic );
-            var actual = (bool)fieldInfo.GetValue( subject );
+            var actual = (((EventSource) subject).Settings & EventSourceSettings.ThrowOnEventWriteErrors) != 0;
             Assert.IsFalse( actual );
         }
 
@@ -669,8 +674,7 @@ namespace EventSourceProxy.Tests
         public void EventSourceThrowsConfigured()
         {
             var subject = EventSourceImplementer.GetEventSourceAs<IThrowsLog>();
-            var fieldInfo = typeof(EventSource).GetField( "m_throwOnEventWriteErrors", BindingFlags.Instance | BindingFlags.NonPublic );
-            var actual = (bool)fieldInfo.GetValue( subject );
+            var actual = (((EventSource) subject).Settings & EventSourceSettings.ThrowOnEventWriteErrors) != 0;
             Assert.IsTrue( actual );
         }
 

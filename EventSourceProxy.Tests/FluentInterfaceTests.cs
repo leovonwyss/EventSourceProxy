@@ -87,12 +87,12 @@ namespace EventSourceProxy.Tests
 			var payload = events[0].Payload.Select(o => o.ToString()).ToArray();
 
 			Assert.AreEqual(6, payload.Length);
-			Assert.That(payload[0] == ("from"));
-			Assert.That(payload[1] == ("to"));
-			Assert.That(payload[2] == ("{\"s\":\"subject\",\"b\":\"body\"}"));
-			Assert.That(payload[3] == ("AQ=="));
-			Assert.That(payload[4] == ("1/1/2000 12:00:00 AM"));
-			Assert.That(payload[5] == ("testing"));
+			Assert.That(payload[0], Is.EqualTo("from"));
+			Assert.That(payload[1], Is.EqualTo("to"));
+			Assert.That(payload[2], Is.EqualTo("{\"s\":\"subject\",\"b\":\"body\"}"));
+			Assert.That(payload[3], Is.EqualTo("AQ=="));
+			Assert.That(payload[4], Is.EqualTo("2000-01-01T00:00:00"));
+			Assert.That(payload[5], Is.EqualTo("testing"));
 		}
 		#endregion
 
@@ -503,7 +503,7 @@ namespace EventSourceProxy.Tests
 			var payload = events[0].Payload.Select(o => o.ToString()).ToArray();
 			Assert.AreEqual(2, payload.Length);
 			Assert.That(payload.Contains("{\"From\":\"from\",\"To\":\"to\",\"Subject\":\"subject\",\"Body\":\"body\",\"Attachments\":[\"AQ==\"]}"));
-			Assert.That(payload.Contains("1/1/2000 12:00:00 AM"));
+			Assert.That(payload.Contains("2000-01-01T00:00:00"));
 		}
 
 		[Test]
@@ -523,8 +523,8 @@ namespace EventSourceProxy.Tests
 
 			var payload = events[0].Payload.Select(o => o.ToString()).ToArray();
 			Assert.AreEqual(2, payload.Length);
-			Assert.That(payload.Contains("from"));
-			Assert.That(payload.Contains("1/1/2000 12:00:00 AM"));
+			Assert.That(payload, Contains.Item("from"));
+			Assert.That(payload, Contains.Item("2000-01-01T00:00:00"));
 		}
 
 		[Test]
@@ -535,15 +535,13 @@ namespace EventSourceProxy.Tests
 
 			var proxy = (IEmailer)new TypeImplementer(typeof(IEmailer), tpp).EventSource;
 			EnableLogging(proxy);
-			proxy.Send(new EMail("from", "to", "subject", "body", new byte[][] { new byte[] { 1 } }), DateTime.Parse("1/1/2000"));
+			proxy.Send(new EMail("from", "to", "subject", "body", new byte[][] { new byte[] { 1 } }), new DateTime(2000, 5, 17));
 
 			// look at the events again
 			var events = _listener.Events.ToArray();
 			Assert.AreEqual(1, events.Length);
-
-			var payload = events[0].Payload.Select(o => o.ToString()).ToArray();
-			Assert.AreEqual(1, payload.Length);
-			Assert.That(payload.Contains("1/1/2000 12:00:00 AM"));
+			Assert.AreEqual(1, events[0].Payload.Count());
+			Assert.That(events[0].Payload[0], Is.EqualTo("2000-05-17T00:00:00"));
 		}
 
 		[Test]
@@ -554,15 +552,13 @@ namespace EventSourceProxy.Tests
 
 			var proxy = (IEmailer)new TypeImplementer(typeof(IEmailer), tpp).EventSource;
 			EnableLogging(proxy);
-			proxy.Send(new EMail("from", "to", "subject", "body", new byte[][] { new byte[] { 1 } }), DateTime.Parse("1/1/2000"));
+			proxy.Send(new EMail("from", "to", "subject", "body", new byte[][] { new byte[] { 1 } }), new DateTime(2000, 5, 17, 15, 5, 5));
 
 			// look at the events again
 			var events = _listener.Events.ToArray();
 			Assert.AreEqual(1, events.Length);
-
-			var payload = events[0].Payload.Select(o => o.ToString()).ToArray();
-			Assert.AreEqual(1, payload.Length);
-			Assert.That(payload.Contains("1/1/2000 12:00:00 AM"));
+			Assert.AreEqual(1, events[0].Payload.Count());
+			Assert.That(events[0].Payload[0], Is.EqualTo("2000-05-17T15:05:05"));
 		}
 		#endregion
 
